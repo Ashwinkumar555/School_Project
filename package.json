@@ -1,0 +1,22 @@
+{
+  "name": "educonnect-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EduConnect - Smart Government School, Student Welfare & Village Community Support Platform",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "server": "npm run dev --prefix backend",
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "build:frontend": "npm run build --prefix frontend",
+    "lint": "npm run lint --prefix frontend"
+  },
+  "keywords": [
+    "education",
+    "government-school",
+    "student-welfare",
+    "village-community",
+    "mern-stack"
+  ],
+  "author": "EduConnect Team",
+  "license": "MIT"
+}
