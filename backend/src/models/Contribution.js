@@ -33,8 +33,8 @@ const contributionSchema = new mongoose.Schema(
     },
     contributorRole: {
       type: String,
-      enum: ['community_member', 'parent', 'alumni', 'ngo', 'village_head', 'student_parent', 'community_volunteer'],
-      default: 'community_member',
+      enum: ['villager', 'community_member', 'parent', 'alumni', 'ngo', 'village_head', 'student_parent', 'community_volunteer'],
+      default: 'villager',
     },
     contributionType: {
       type: String,

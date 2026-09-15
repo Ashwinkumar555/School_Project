@@ -109,6 +109,15 @@ const studentSchema = new mongoose.Schema(
       enum: ['NORMAL', 'MODERATE_ATTENTION', 'HIGH_ATTENTION'],
       default: 'NORMAL',
     },
+    // Subject marks entered by teacher
+    subjectMarks: [
+      {
+        subject: { type: String, required: true },
+        marksObtained: { type: Number, required: true, default: 0 },
+        maxMarks: { type: Number, default: 100 },
+        grade: { type: String, default: 'B' },
+      },
+    ],
     isActive: {
       type: Boolean,
       default: true,

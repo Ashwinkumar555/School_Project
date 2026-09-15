@@ -1,11 +1,12 @@
 import bcrypt from 'bcryptjs';
 import User, { USER_ROLES } from '../models/User.js';
+import Student from '../models/Student.js';
 import { generateToken } from '../utils/generateToken.js';
 import { getDbStatus } from '../config/db.js';
 import store from '../utils/dataStore.js';
 import mongoose from 'mongoose';
 
-// Temporary in-memory OTP verification store (phone -> { otp, expiresAt })
+// In-memory OTP verification store (key -> { otp, expiresAt, phone })
 const otpStore = new Map();
 
 export const normalizePhone = (phone) => {
@@ -25,57 +26,110 @@ export const normalizeAadhaar = (aadhaar) => {
   return String(aadhaar).replace(/\D/g, '');
 };
 
-const verifyOtpCode = (phone, otp) => {
-  const cleanPhone = (phone || '').trim();
+const verifyOtpCode = (key, otp) => {
+  const cleanKey = (key || '').trim();
   const cleanOtp = (otp || '').trim();
-  if (!cleanOtp) return false;
-  if (cleanOtp === '123456') return true; // universal master demo OTP
+  if (!cleanKey || !cleanOtp) return false;
 
-  const norm = normalizePhone(cleanPhone);
-  const record = otpStore.get(cleanPhone) || (norm ? otpStore.get(norm) : null);
-  if (record && record.otp === cleanOtp && record.expiresAt > Date.now()) {
-    return true;
-  }
+  const norm = normalizePhone(cleanKey);
+  const record = otpStore.get(cleanKey) || (norm ? otpStore.get(norm) : null);
+
   if (record && record.otp === cleanOtp) {
+    if (record.expiresAt && record.expiresAt < Date.now()) {
+      otpStore.delete(cleanKey);
+      if (norm) otpStore.delete(norm);
+      return false;
+    }
     return true;
   }
   return false;
 };
 
 /**
- * @desc    Send OTP to user phone number
+ * @desc    Send OTP to user phone number or registered P.No
  * @route   POST /api/auth/send-otp
  * @access  Public
  */
 export const sendOtp = async (req, res, next) => {
   try {
-    const { phone } = req.body;
+    const { phone, identifier } = req.body;
+    const input = (phone || identifier || '').trim();
 
-    if (!phone || !phone.trim()) {
+    if (!input) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a valid phone number to receive OTP',
+        message: 'Please provide a valid Phone Number or P.No to receive OTP',
       });
     }
 
-    const cleanPhone = phone.trim();
-    const norm = normalizePhone(cleanPhone);
+    let targetPhone = input;
+    let registeredPNo = null;
+
+    // If input does not look like a pure phone number (contains letters or less than 10 digits without +)
+    // or if an account with this P.No exists in DB / store, lookup the registered phone number
+    const norm = normalizePhone(input);
+    let matchedUser = null;
+
+    if (mongoose.connection.readyState === 1) {
+      try {
+        matchedUser = await User.findOne({
+          $or: [
+            { pNo: input },
+            { phone: input },
+            ...(norm ? [{ phone: norm }, { phone: { $regex: norm + '$', $options: 'i' } }] : []),
+          ],
+        });
+      } catch (dbErr) {
+        console.warn('DB lookup during send-otp:', dbErr.message);
+      }
+    }
+
+    if (!matchedUser) {
+      matchedUser = store.users.find(
+        (u) =>
+          u.pNo === input ||
+          u.phone === input ||
+          (norm && normalizePhone(u.phone) === norm)
+      );
+    }
+
+    if (matchedUser) {
+      targetPhone = matchedUser.phone || input;
+      registeredPNo = matchedUser.pNo || null;
+    }
+
+    const cleanPhone = targetPhone.trim();
+    const phoneNorm = normalizePhone(cleanPhone);
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes validity
 
-    otpStore.set(cleanPhone, { otp: generatedOtp, expiresAt });
-    if (norm) {
-      otpStore.set(norm, { otp: generatedOtp, expiresAt });
+    const otpPayload = { otp: generatedOtp, expiresAt, phone: cleanPhone };
+
+    otpStore.set(cleanPhone, otpPayload);
+    if (phoneNorm) {
+      otpStore.set(phoneNorm, otpPayload);
+    }
+    if (input && input !== cleanPhone) {
+      otpStore.set(input, otpPayload);
+    }
+    if (registeredPNo) {
+      otpStore.set(registeredPNo, otpPayload);
     }
 
-    console.log(`[EduConnect SMS Gateway] OTP for ${cleanPhone} (norm: ${norm}): ${generatedOtp}`);
+    console.log(`[EduConnect OTP Service] OTP for ${cleanPhone} (key: ${input}): ${generatedOtp}`);
+
+    const maskedPhone =
+      cleanPhone.length > 4
+        ? '******' + cleanPhone.slice(-4)
+        : cleanPhone;
 
     return res.status(200).json({
       success: true,
-      message: `OTP sent successfully to ${cleanPhone}`,
+      message: `OTP sent successfully to registered mobile ending in ${cleanPhone.slice(-4)}`,
       data: {
         phone: cleanPhone,
-        otp: generatedOtp, // returned for seamless testing/demo evaluation
+        maskedPhone,
+        otp: generatedOtp, // returned for verification feedback in UI & testing
         expiresIn: 300,
       },
     });
@@ -85,33 +139,34 @@ export const sendOtp = async (req, res, next) => {
 };
 
 /**
- * @desc    Verify OTP for phone number
+ * @desc    Verify OTP for phone number or P.No
  * @route   POST /api/auth/verify-otp
  * @access  Public
  */
 export const verifyOtp = async (req, res, next) => {
   try {
-    const { phone, otp } = req.body;
+    const { phone, identifier, otp } = req.body;
+    const key = (phone || identifier || '').trim();
 
-    if (!phone || !otp) {
+    if (!key || !otp) {
       return res.status(400).json({
         success: false,
-        message: 'Both phone number and OTP are required for verification',
+        message: 'Phone number / P.No and OTP are required for verification',
       });
     }
 
-    const isValid = verifyOtpCode(phone, otp);
+    const isValid = verifyOtpCode(key, otp);
 
     if (!isValid) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired OTP. Please enter the correct OTP.',
+        message: 'Invalid or expired OTP. Please enter the correct OTP code.',
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Phone number verified successfully',
+      message: 'OTP verified successfully',
     });
   } catch (error) {
     next(error);
@@ -119,15 +174,52 @@ export const verifyOtp = async (req, res, next) => {
 };
 
 /**
- * @desc    Register a new user or authenticate existing user
+ * @desc    Register a new user account in MongoDB
  * @route   POST /api/auth/register
  * @access  Public
  */
 export const registerUser = async (req, res, next) => {
   try {
-    const { name, role, phone, aadhaarNumber, aadhaar, schoolName, otp, village, district, organizationName } = req.body;
+    const {
+      pNo,
+      name,
+      role,
+      phone,
+      aadhaarNumber,
+      aadhaar,
+      schoolName,
+      otp,
+      studentIdentifier,
+      admissionNumber,
+      rollNumber,
+    } = req.body;
 
-    if (!name || !name.trim()) {
+    // 1. Role validation
+    if (!role || !USER_ROLES.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select a valid platform role for registration',
+      });
+    }
+
+    // 2. Required fields validation
+    const rolePrefixes = {
+      village_head: 'VHD',
+      alumni: 'ALM',
+      ngo: 'NGO',
+      headmaster_admin: 'HMA',
+      teacher: 'TCH',
+      parent: 'PAR',
+      student: 'STD',
+      villager: 'VIL',
+    };
+    const prefix = rolePrefixes[role] || 'USR';
+    const finalPNo =
+      (pNo || '').trim() ||
+      `${prefix}-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
+
+    const finalName = (name || '').trim();
+    if (!finalName) {
       return res.status(400).json({
         success: false,
         message: 'Full name is required',
@@ -142,14 +234,6 @@ export const registerUser = async (req, res, next) => {
       });
     }
 
-    const finalOtp = (otp || '').trim();
-    if (!finalOtp) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please enter the OTP received on your phone number before completing registration',
-      });
-    }
-
     const finalAadhaar = (aadhaarNumber || aadhaar || '').trim();
     if (!finalAadhaar) {
       return res.status(400).json({
@@ -158,8 +242,24 @@ export const registerUser = async (req, res, next) => {
       });
     }
 
-    // Verify OTP
-    if (!verifyOtpCode(finalPhone, finalOtp)) {
+    if (role === 'headmaster_admin' && (!schoolName || !schoolName.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'School Name is required for Headmaster / Admin registration',
+      });
+    }
+
+    const finalOtp = (otp || '').trim();
+    if (!finalOtp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter the OTP received on your phone number',
+      });
+    }
+
+    // 3. Verify OTP
+    const isOtpValid = verifyOtpCode(finalPhone, finalOtp) || verifyOtpCode(finalPNo, finalOtp);
+    if (!isOtpValid) {
       return res.status(400).json({
         success: false,
         message: 'Invalid or expired OTP. Please enter the valid OTP sent to your phone number.',
@@ -168,150 +268,208 @@ export const registerUser = async (req, res, next) => {
 
     const normPhone = normalizePhone(finalPhone);
     const normAadhaar = normalizeAadhaar(finalAadhaar);
-    const assignedRole = role && USER_ROLES.includes(role) ? role : 'village_head';
 
-    // 1. Check if user already exists (by Phone or Aadhaar) - authenticate without creating duplicates
-    let existingUser = null;
+    // 4. Duplicate checks (P.No, phone number, Aadhaar number)
+    let duplicateError = null;
 
     if (mongoose.connection.readyState === 1) {
       try {
-        const query = [{ phone: finalPhone }];
-        if (normPhone) query.push({ phone: { $regex: normPhone + '$', $options: 'i' } });
-        if (finalAadhaar) query.push({ aadhaarNumber: finalAadhaar });
-        if (normAadhaar) query.push({ aadhaarNumber: normAadhaar });
-        existingUser = await User.findOne({ $or: query });
+        const existingPNo = await User.findOne({ pNo: finalPNo });
+        if (existingPNo) duplicateError = 'An account with this P.No already exists.';
+
+        if (!duplicateError) {
+          const phoneQuery = [{ phone: finalPhone }];
+          if (normPhone) {
+            phoneQuery.push({ phone: normPhone }, { phone: { $regex: normPhone + '$', $options: 'i' } });
+          }
+          const existingPhone = await User.findOne({ $or: phoneQuery });
+          if (existingPhone) duplicateError = 'An account with this phone number already exists.';
+        }
+
+        if (!duplicateError && finalAadhaar) {
+          const aadhaarQuery = [{ aadhaarNumber: finalAadhaar }];
+          if (normAadhaar) aadhaarQuery.push({ aadhaarNumber: normAadhaar });
+          const existingAadhaar = await User.findOne({ $or: aadhaarQuery });
+          if (existingAadhaar) duplicateError = 'An account with this Aadhaar number already exists.';
+        }
       } catch (dbErr) {
-        console.warn('DB check during register:', dbErr.message);
+        console.warn('DB duplicate check warning:', dbErr.message);
       }
     }
 
-    if (!existingUser) {
-      existingUser = store.users.find(
-        (u) =>
-          u.phone === finalPhone ||
-          (normPhone && normalizePhone(u.phone) === normPhone) ||
-          (finalAadhaar && u.aadhaarNumber === finalAadhaar) ||
-          (normAadhaar && normalizeAadhaar(u.aadhaarNumber) === normAadhaar)
+    // Check store duplicates as well
+    if (!duplicateError) {
+      const existingInStorePNo = store.users.find((u) => u.pNo === finalPNo);
+      if (existingInStorePNo) duplicateError = 'An account with this P.No already exists.';
+
+      const existingInStorePhone = store.users.find(
+        (u) => u.phone === finalPhone || (normPhone && normalizePhone(u.phone) === normPhone)
       );
+      if (existingInStorePhone) duplicateError = 'An account with this phone number already exists.';
+
+      const existingInStoreAadhaar = store.users.find(
+        (u) => u.aadhaarNumber === finalAadhaar || (normAadhaar && normalizeAadhaar(u.aadhaarNumber) === normAadhaar)
+      );
+      if (existingInStoreAadhaar) duplicateError = 'An account with this Aadhaar number already exists.';
     }
 
-    if (existingUser) {
-      // User already has an account: Authenticate & log them in seamlessly without creating a duplicate!
-      existingUser.isPhoneVerified = true;
-      if (typeof existingUser.save === 'function') {
+    if (duplicateError) {
+      return res.status(400).json({
+        success: false,
+        message: duplicateError,
+      });
+    }
+
+    // 5. If registering as a parent, find and link student(s)
+    let matchedStudentIds = [];
+    if (role === 'parent' || role === 'student_parent') {
+      const studentIdent = (studentIdentifier || admissionNumber || rollNumber || '').trim().toLowerCase();
+
+      // Look up in store.students
+      const matchedInStore = store.students.filter((s) => {
+        const sAdmission = (s.admissionNumber || '').toLowerCase().trim();
+        const sRoll = (s.rollNumber || '').toLowerCase().trim();
+        const sParentPhoneNorm = normalizePhone(s.parentPhone);
+        const sParentName = (s.parentName || '').toLowerCase().trim();
+        const finalNameLower = finalName.toLowerCase().trim();
+
+        const identMatch = studentIdent && (sAdmission === studentIdent || sRoll === studentIdent);
+        const phoneMatch = normPhone && sParentPhoneNorm && (normPhone === sParentPhoneNorm || s.parentPhone === finalPhone);
+        const nameMatch = finalNameLower && sParentName && (sParentName === finalNameLower || sParentName.includes(finalNameLower) || finalNameLower.includes(sParentName));
+
+        return identMatch || phoneMatch || nameMatch;
+      });
+      matchedStudentIds.push(...matchedInStore.map((s) => s._id));
+
+      // Look up in MongoDB if connected
+      if (mongoose.connection.readyState === 1) {
         try {
-          await existingUser.save();
-        } catch (e) {
-          // ignore
+          const conditions = [];
+          if (studentIdent) {
+            conditions.push({ admissionNumber: new RegExp('^' + studentIdent + '$', 'i') });
+            conditions.push({ rollNumber: new RegExp('^' + studentIdent + '$', 'i') });
+          }
+          if (finalPhone) {
+            conditions.push({ parentPhone: finalPhone });
+          }
+          if (normPhone) {
+            conditions.push({ parentPhone: { $regex: normPhone + '$', $options: 'i' } });
+          }
+          if (finalName) {
+            conditions.push({ parentName: new RegExp('^' + finalName + '$', 'i') });
+          }
+
+          if (conditions.length > 0) {
+            const dbMatched = await Student.find({ $or: conditions });
+            matchedStudentIds.push(...dbMatched.map((s) => s._id));
+          }
+        } catch (dbFindErr) {
+          console.warn('DB student lookup during parent register:', dbFindErr.message);
         }
       }
 
-      const token = generateToken(existingUser._id, existingUser.role, {
-        name: existingUser.name,
-        phone: existingUser.phone,
-      });
-
-      const safeUser = typeof existingUser.toSafeObject === 'function' ? existingUser.toSafeObject() : {
-        _id: existingUser._id,
-        name: existingUser.name,
-        email: existingUser.email,
-        role: existingUser.role,
-        phone: existingUser.phone,
-        aadhaarNumber: existingUser.aadhaarNumber || finalAadhaar,
-        isPhoneVerified: true,
-        schoolName: existingUser.schoolName || schoolName || 'Govt Model Higher Secondary School',
-        village: existingUser.village || village || 'Sundarpur',
-        district: existingUser.district || district || 'Central District',
-        organizationName: existingUser.organizationName || organizationName || '',
-        isActive: existingUser.isActive !== false,
-      };
-
-      return res.status(200).json({
-        success: true,
-        message: 'Account verified and authenticated successfully',
-        data: {
-          user: safeUser,
-          token,
-        },
-      });
+      matchedStudentIds = Array.from(new Set(matchedStudentIds.map(String)));
     }
 
-    // 2. New user registration: Create new account in MongoDB and store
-    const cleanedDigits = normPhone || normAadhaar || `${Date.now()}`;
-    const generatedEmail = `${cleanedDigits}@educonnect.gov.in`;
+    const validStudentObjectIds = matchedStudentIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
 
+    // 6. Create Real User in MongoDB
     const newUserObj = {
-      _id: `user-${Date.now()}`,
-      name: name.trim(),
-      email: generatedEmail,
-      role: assignedRole,
+      _id: `user-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      pNo: finalPNo,
+      name: finalName,
+      role,
       phone: finalPhone,
       aadhaarNumber: finalAadhaar,
+      children: matchedStudentIds,
       isPhoneVerified: true,
-      schoolName: schoolName || 'Govt Model Higher Secondary School',
-      village: village || 'Sundarpur',
-      district: district || 'Central District',
-      organizationName: organizationName || '',
+      schoolName: role === 'headmaster_admin' ? (schoolName || '').trim() : '',
+      village: 'Sundarpur',
+      district: 'Central District',
+      organizationName: '',
       isActive: true,
       createdAt: new Date(),
     };
 
-    // Save to MongoDB
+    let createdDbUser = null;
     if (mongoose.connection.readyState === 1) {
       try {
-        const createdUser = await User.create({
+        createdDbUser = await User.create({
+          pNo: newUserObj.pNo,
           name: newUserObj.name,
-          email: newUserObj.email,
-          role: assignedRole,
+          role: newUserObj.role,
           phone: newUserObj.phone,
           aadhaarNumber: newUserObj.aadhaarNumber,
+          children: validStudentObjectIds,
           isPhoneVerified: true,
           schoolName: newUserObj.schoolName,
           village: newUserObj.village,
           district: newUserObj.district,
           organizationName: newUserObj.organizationName,
         });
-
-        const token = generateToken(createdUser._id, createdUser.role, {
-          name: createdUser.name,
-          phone: createdUser.phone,
-        });
-
-        return res.status(201).json({
-          success: true,
-          message: 'Registration successful',
-          data: {
-            user: createdUser.toSafeObject(),
-            token,
-          },
-        });
-      } catch (dbErr) {
-        console.warn('DB create failed during register, storing in store:', dbErr.message);
+        if (createdDbUser) {
+          newUserObj._id = createdDbUser._id.toString();
+        }
+      } catch (createErr) {
+        console.warn('DB creation error during register, persisting to file-backed store:', createErr.message);
       }
     }
 
-    // Register in persistent store
+    // Save to persistent file-backed store
     store.users.push(newUserObj);
+    store.saveUsersToFile();
 
-    const token = generateToken(newUserObj._id, newUserObj.role, {
-      name: newUserObj.name,
-      phone: newUserObj.phone,
+    const userId = createdDbUser ? createdDbUser._id : newUserObj._id;
+
+    // Two-way link: update matched students' parentUser
+    if (matchedStudentIds.length > 0) {
+      store.students.forEach((s) => {
+        if (matchedStudentIds.includes(String(s._id))) {
+          s.parentUser = String(userId);
+        }
+      });
+      if (mongoose.connection.readyState === 1 && validStudentObjectIds.length > 0) {
+        try {
+          await Student.updateMany(
+            { _id: { $in: validStudentObjectIds } },
+            { $set: { parentUser: userId } }
+          );
+        } catch (linkErr) {
+          console.warn('DB student parent link error during register:', linkErr.message);
+        }
+      }
+    }
+
+    const token = generateToken(userId, role, {
+      name: finalName,
+      phone: finalPhone,
+      pNo: finalPNo,
     });
 
-    const safeUser = {
-      _id: newUserObj._id,
-      name: newUserObj.name,
-      email: newUserObj.email,
-      role: newUserObj.role,
-      phone: newUserObj.phone,
-      aadhaarNumber: newUserObj.aadhaarNumber,
-      isPhoneVerified: true,
-      schoolName: newUserObj.schoolName,
-      village: newUserObj.village,
-      district: newUserObj.district,
-      organizationName: newUserObj.organizationName,
-      isActive: true,
-    };
+    const safeUser = createdDbUser
+      ? createdDbUser.toSafeObject()
+      : {
+          _id: newUserObj._id,
+          pNo: newUserObj.pNo,
+          name: newUserObj.name,
+          role: newUserObj.role,
+          phone: newUserObj.phone,
+          children: matchedStudentIds,
+          isPhoneVerified: true,
+          schoolName: newUserObj.schoolName,
+          village: newUserObj.village,
+          district: newUserObj.district,
+          organizationName: newUserObj.organizationName,
+          isActive: true,
+        };
+
+    if (!safeUser.children && matchedStudentIds.length > 0) {
+      safeUser.children = matchedStudentIds;
+    }
+
+    delete safeUser.aadhaarNumber;
+    delete safeUser.aadhaar;
+    delete safeUser.password;
 
     return res.status(201).json({
       success: true,
@@ -327,256 +485,270 @@ export const registerUser = async (req, res, next) => {
 };
 
 /**
- * @desc    Authenticate user using Phone + OTP (or legacy credentials)
+ * @desc    Authenticate user using P.No / Phone Number + OTP
  * @route   POST /api/auth/login
  * @access  Public
  */
 export const loginUser = async (req, res, next) => {
   try {
-    const { phone, otp, email, password } = req.body;
+    const { role, identifier, phone, pNo, otp } = req.body;
+    const targetIdentifier = (identifier || pNo || phone || '').trim();
+    const targetRole = (role || '').trim();
+    const finalOtp = (otp || '').trim();
 
-    // 1. Phone + OTP Authentication Flow (Primary)
-    if (phone !== undefined || otp !== undefined) {
-      const { name, aadhaarNumber, role, schoolName } = req.body;
-      if (!phone || !phone.trim()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Phone number is required for authentication',
-        });
-      }
-      if (!otp || !otp.trim()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please enter the OTP received on your phone number',
-        });
-      }
-
-      const cleanPhone = phone.trim();
-      const normPhone = normalizePhone(cleanPhone);
-      const finalAadhaar = (aadhaarNumber || '').trim();
-      const normAadhaar = normalizeAadhaar(finalAadhaar);
-
-      // Verify OTP
-      if (!verifyOtpCode(cleanPhone, otp)) {
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid or expired OTP. Please enter the valid OTP code.',
-        });
-      }
-
-      // Find user in DB or in Store
-      let user = null;
-      if (mongoose.connection.readyState === 1) {
-        try {
-          user = await User.findOne({
-            $or: [
-              { phone: cleanPhone },
-              { phone: { $regex: normPhone ? normPhone + '$' : cleanPhone, $options: 'i' } },
-              ...(finalAadhaar ? [{ aadhaarNumber: finalAadhaar }] : []),
-            ],
-          });
-        } catch (dbErr) {
-          console.warn('DB lookup failed during phone login:', dbErr.message);
-        }
-      }
-
-      if (!user) {
-        // Find in store
-        const storeUser = store.users.find(
-          (u) =>
-            u.phone === cleanPhone ||
-            (normPhone && normalizePhone(u.phone) === normPhone) ||
-            (finalAadhaar && u.aadhaarNumber === finalAadhaar) ||
-            (normAadhaar && normalizeAadhaar(u.aadhaarNumber) === normAadhaar)
-        );
-        if (storeUser) {
-          user = storeUser;
-        }
-      }
-
-      // If user does not exist yet and name/details are provided, create account automatically
-      if (!user && (name || req.body.role)) {
-        const assignedRole = role || 'village_head';
-        const cleanedDigits = normPhone || normAadhaar || `${Date.now()}`;
-        const generatedEmail = `${cleanedDigits}@educonnect.gov.in`;
-
-        const newUserObj = {
-          _id: `user-${Date.now()}`,
-          name: (name || 'Citizen User').trim(),
-          email: generatedEmail,
-          role: assignedRole,
-          phone: cleanPhone,
-          aadhaarNumber: finalAadhaar,
-          isPhoneVerified: true,
-          schoolName: schoolName || (assignedRole === 'headmaster_admin' ? 'Govt Model Higher Secondary School' : ''),
-          village: 'Sundarpur',
-          district: 'Central District',
-          organizationName: '',
-          isActive: true,
-        };
-
-        if (mongoose.connection.readyState === 1) {
-          try {
-            const createdUser = await User.create({
-              name: newUserObj.name,
-              email: newUserObj.email,
-              role: newUserObj.role,
-              phone: newUserObj.phone,
-              aadhaarNumber: newUserObj.aadhaarNumber,
-              isPhoneVerified: true,
-              schoolName: newUserObj.schoolName,
-              village: newUserObj.village,
-              district: newUserObj.district,
-            });
-
-            const token = generateToken(createdUser._id, createdUser.role, {
-              name: createdUser.name,
-              phone: createdUser.phone,
-            });
-
-            return res.status(200).json({
-              success: true,
-              message: 'Authentication successful',
-              data: {
-                user: createdUser.toSafeObject(),
-                token,
-              },
-            });
-          } catch (createErr) {
-            console.warn('DB user creation fallback to store:', createErr.message);
-          }
-        }
-
-        store.users.push(newUserObj);
-        const token = generateToken(newUserObj._id, newUserObj.role, {
-          name: newUserObj.name,
-          phone: newUserObj.phone,
-        });
-
-        return res.status(200).json({
-          success: true,
-          message: 'Authentication successful',
-          data: {
-            user: {
-              _id: newUserObj._id,
-              name: newUserObj.name,
-              email: newUserObj.email,
-              role: newUserObj.role,
-              phone: newUserObj.phone,
-              isPhoneVerified: true,
-              schoolName: newUserObj.schoolName,
-              isActive: true,
-            },
-            token,
-          },
-        });
-      }
-
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'No registered account found with this phone number. Please complete registration first.',
-        });
-      }
-
-      if (user.isActive === false) {
-        return res.status(403).json({
-          success: false,
-          message: 'This account has been deactivated. Please contact administration.',
-        });
-      }
-
-      // Mark phone verified
-      user.isPhoneVerified = true;
-      if (typeof user.save === 'function') {
-        try {
-          await user.save();
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      const token = generateToken(user._id, user.role, { name: user.name, phone: user.phone });
-      const safeUser = typeof user.toSafeObject === 'function' ? user.toSafeObject() : {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone,
-        isPhoneVerified: true,
-        schoolName: user.schoolName,
-        village: user.village,
-        district: user.district,
-        organizationName: user.organizationName,
-        isActive: user.isActive !== false,
-      };
-
-      return res.status(200).json({
-        success: true,
-        message: 'Login successful',
-        data: {
-          user: safeUser,
-          token,
-        },
+    if (!targetRole) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select your role',
       });
     }
 
-    // 2. Fallback Email + Password flow for existing automated test suites
-    if (email && password) {
-      const normalizedEmail = email.toLowerCase().trim();
-      let user = null;
-      if (mongoose.connection.readyState === 1) {
-        try {
-          user = await User.findOne({ email: normalizedEmail }).select('+password');
-        } catch (dbErr) {
-          console.warn('DB lookup failed during email login:', dbErr.message);
-        }
-      }
+    if (!targetIdentifier) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone Number is required for login',
+      });
+    }
 
-      if (user) {
-        const isMatch = await user.matchPassword(password);
-        if (!isMatch) {
-          return res.status(401).json({
-            success: false,
-            message: 'Invalid email or password',
-          });
-        }
-        const token = generateToken(user._id, user.role, { name: user.name, email: user.email });
-        return res.status(200).json({
-          success: true,
-          message: 'Login successful',
-          data: { user: user.toSafeObject(), token },
-        });
-      }
+    if (!finalOtp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter the OTP received on your phone number',
+      });
+    }
 
-      const storeUser = store.users.find((u) => u.email && u.email.toLowerCase() === normalizedEmail);
-      if (storeUser) {
-        const token = generateToken(storeUser._id, storeUser.role, { name: storeUser.name, email: storeUser.email });
-        const safeUser = {
-          _id: storeUser._id,
-          name: storeUser.name,
-          email: storeUser.email,
-          role: storeUser.role,
-          phone: storeUser.phone,
-          aadhaarNumber: storeUser.aadhaarNumber || '',
-          isPhoneVerified: true,
-          schoolName: storeUser.schoolName,
-          village: storeUser.village,
-          district: storeUser.district,
-          organizationName: storeUser.organizationName,
-          isActive: true,
-        };
-        return res.status(200).json({
-          success: true,
-          message: 'Login successful',
-          data: { user: safeUser, token },
-        });
+    // 1. Verify OTP
+    const isOtpValid =
+      verifyOtpCode(targetIdentifier, finalOtp) ||
+      verifyOtpCode(normalizePhone(targetIdentifier), finalOtp);
+
+    if (!isOtpValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired OTP. Please enter the valid OTP code.',
+      });
+    }
+
+    // 2. Find user in MongoDB or Store
+    const normPhone = normalizePhone(targetIdentifier);
+    let user = null;
+
+    if (mongoose.connection.readyState === 1) {
+      try {
+        const query = [
+          { pNo: targetIdentifier },
+          { phone: targetIdentifier },
+        ];
+        if (normPhone) {
+          query.push({ phone: normPhone }, { phone: { $regex: normPhone + '$', $options: 'i' } });
+        }
+        user = await User.findOne({ $or: query });
+      } catch (dbErr) {
+        console.warn('DB lookup failed during login:', dbErr.message);
       }
     }
 
-    return res.status(400).json({
-      success: false,
-      message: 'Please provide phone number and OTP for authentication',
+    if (!user) {
+      user = store.users.find(
+        (u) =>
+          u.pNo === targetIdentifier ||
+          u.phone === targetIdentifier ||
+          (normPhone && normalizePhone(u.phone) === normPhone)
+      );
+      if (user && mongoose.connection.readyState === 1 && !mongoose.Types.ObjectId.isValid(user._id)) {
+        try {
+          const mongoUser = await User.findOne({
+            $or: [
+              ...(user.phone ? [{ phone: user.phone }] : []),
+              ...(user.pNo ? [{ pNo: user.pNo }] : []),
+            ],
+          });
+          if (mongoUser) {
+            user = mongoUser;
+          } else {
+            const synced = await User.create({
+              name: user.name,
+              role: user.role,
+              phone: user.phone,
+              pNo: user.pNo,
+              village: user.village || 'Sundarpur',
+              district: user.district || 'Central District',
+              schoolName: user.schoolName || '',
+              organizationName: user.organizationName || '',
+              isPhoneVerified: true,
+              isActive: true,
+            });
+            if (synced) {
+              user = synced;
+            }
+          }
+        } catch (syncErr) {
+          console.warn('Sync to Mongo on login:', syncErr.message);
+        }
+      }
+    }
+
+    // If user not found, DO NOT auto-create!
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No registered account found with this P.No / Phone Number. Please register first.',
+      });
+    }
+
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deactivated. Please contact administration.',
+      });
+    }
+
+    // 3. Strict Role Verification: Selected role must match registered role in database
+    if (user.role !== targetRole) {
+      return res.status(403).json({
+        success: false,
+        message: 'Selected role does not match your registered role.',
+      });
+    }
+
+    // 4. For Parent role: link child automatically if not linked or if matching child exists
+    if (user.role === 'parent' || user.role === 'student_parent') {
+      let matchedChildren = [];
+      const userPhoneNorm = normalizePhone(user.phone);
+      const userNameLower = (user.name || '').toLowerCase().trim();
+      const userIdStr = String(user._id);
+
+      // Search in store.students
+      const storeMatches = store.students.filter((s) => {
+        const sParentUser = String(s.parentUser?._id || s.parentUser || '');
+        const sNormPhone = normalizePhone(s.parentPhone);
+        const sParentName = (s.parentName || '').toLowerCase().trim();
+        const sId = String(s._id);
+        const userChildrenList = (user.children || []).map((c) => String(c?._id || c));
+
+        return (
+          userChildrenList.includes(sId) ||
+          (sParentUser && sParentUser === userIdStr) ||
+          (userPhoneNorm && sNormPhone && (userPhoneNorm === sNormPhone || s.parentPhone === user.phone)) ||
+          (userNameLower && sParentName && (sParentName === userNameLower || sParentName.includes(userNameLower) || userNameLower.includes(sParentName)))
+        );
+      });
+      matchedChildren.push(...storeMatches.map((s) => s._id));
+
+      // Search in MongoDB if connected
+      if (mongoose.connection.readyState === 1) {
+        try {
+          const conditions = [];
+          if (mongoose.Types.ObjectId.isValid(user._id)) {
+            conditions.push({ parentUser: user._id });
+          }
+          if (user.phone) {
+            conditions.push({ parentPhone: user.phone });
+          }
+          if (userPhoneNorm) {
+            conditions.push({ parentPhone: { $regex: userPhoneNorm + '$', $options: 'i' } });
+          }
+          if (user.name) {
+            conditions.push({ parentName: new RegExp('^' + user.name + '$', 'i') });
+          }
+
+          if (conditions.length > 0) {
+            const dbMatches = await Student.find({ $or: conditions });
+            matchedChildren.push(...dbMatches.map((s) => s._id));
+          }
+        } catch (dbFindErr) {
+          console.warn('DB student lookup during parent login:', dbFindErr.message);
+        }
+      }
+
+      matchedChildren = Array.from(new Set(matchedChildren.map(String)));
+
+      if (matchedChildren.length > 0) {
+        user.children = matchedChildren;
+        // Keep store.users updated
+        const stUser = store.users.find((u) => String(u._id) === userIdStr || (user.phone && u.phone === user.phone));
+        if (stUser) {
+          stUser.children = matchedChildren;
+        }
+        // Keep store.students updated
+        store.students.forEach((s) => {
+          if (matchedChildren.includes(String(s._id))) {
+            s.parentUser = userIdStr;
+          }
+        });
+        // Keep MongoDB updated
+        if (mongoose.connection.readyState === 1) {
+          try {
+            const validStudentObjectIds = matchedChildren.filter((id) => mongoose.Types.ObjectId.isValid(id));
+            if (mongoose.Types.ObjectId.isValid(user._id)) {
+              await User.findByIdAndUpdate(user._id, { $addToSet: { children: { $each: validStudentObjectIds } } });
+              await Student.updateMany({ _id: { $in: validStudentObjectIds } }, { $set: { parentUser: user._id } });
+            } else {
+              const mongoUser = await User.findOne({
+                $or: [
+                  ...(user.phone ? [{ phone: user.phone }] : []),
+                  ...(user.pNo ? [{ pNo: user.pNo }] : []),
+                ],
+              });
+              if (mongoUser && validStudentObjectIds.length > 0) {
+                await User.findByIdAndUpdate(mongoUser._id, { $addToSet: { children: { $each: validStudentObjectIds } } });
+                await Student.updateMany({ _id: { $in: validStudentObjectIds } }, { $set: { parentUser: mongoUser._id } });
+              }
+            }
+          } catch (syncErr) {
+            console.warn('DB sync during parent login:', syncErr.message);
+          }
+        }
+      }
+    }
+
+    // Mark phone verified if needed
+    user.isPhoneVerified = true;
+    if (typeof user.save === 'function') {
+      try {
+        await user.save();
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    const token = generateToken(user._id, user.role, {
+      name: user.name,
+      phone: user.phone,
+      pNo: user.pNo,
+    });
+
+    const safeUser = typeof user.toSafeObject === 'function' ? user.toSafeObject() : {
+      _id: user._id,
+      pNo: user.pNo,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+      children: user.children || [],
+      isPhoneVerified: true,
+      schoolName: user.schoolName,
+      village: user.village,
+      district: user.district,
+      organizationName: user.organizationName,
+      isActive: user.isActive !== false,
+    };
+
+    if (!safeUser.children && user.children) {
+      safeUser.children = user.children;
+    }
+
+    delete safeUser.aadhaarNumber;
+    delete safeUser.aadhaar;
+    delete safeUser.password;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        user: safeUser,
+        token,
+      },
     });
   } catch (error) {
     next(error);
@@ -598,7 +770,7 @@ export const getMe = async (req, res) => {
 };
 
 /**
- * @desc    Get all supported user roles
+ * @desc    Get all 8 supported platform roles
  * @route   GET /api/auth/roles
  * @access  Public
  */
@@ -638,6 +810,11 @@ export const getRoles = (req, res) => {
       id: 'student',
       name: 'Student',
       description: 'Enrolled school student viewing personal academic scores, attendance, and welfare entitlements.',
+    },
+    {
+      id: 'villager',
+      name: 'Villager',
+      description: 'Local village resident supporting school community drives and student welfare.',
     },
   ];
 

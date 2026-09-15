@@ -71,7 +71,7 @@ export const getContributions = async (req, res, next) => {
     const userId = req.user._id;
     let list = store.contributions;
 
-    if (['community_member', 'alumni', 'parent', 'student_parent', 'community_volunteer'].includes(userRole)) {
+    if (['villager', 'community_member', 'alumni', 'parent', 'student_parent', 'community_volunteer'].includes(userRole)) {
       list = list.filter((c) => c.contributor?.toString() === userId.toString() || c.contributor?._id?.toString() === userId.toString());
     }
 

@@ -79,7 +79,7 @@ export const AlumniDashboard = () => {
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Welcome Back, {user?.name || 'Alumni Colleague'}
+              Welcome Back, {user?.name}
             </h1>
             <p className="text-sm text-slate-300 max-w-2xl">
               Give back to your alma mater. Pledge modern science & computing equipment, sponsor student learning kits, or mentor students to build the next generation of leaders.

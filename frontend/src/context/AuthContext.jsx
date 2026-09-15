@@ -127,8 +127,10 @@ export const AuthProvider = ({ children }) => {
       teacher: 'Teacher',
       parent: 'Parent / Guardian',
       student: 'Student',
+      villager: 'Villager',
       // Aliases
-      community_member: 'Village Local Head',
+      community_member: 'Villager',
+      admin: 'Headmaster / Admin',
       welfare_officer: 'Headmaster / Admin',
       student_parent: 'Parent / Guardian',
       community_volunteer: 'NGO / Partner',

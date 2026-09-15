@@ -7,7 +7,7 @@ import ParentDashboard from './dashboards/ParentDashboard';
 import LocalHeadDashboard from './dashboards/LocalHeadDashboard';
 import AlumniDashboard from './dashboards/AlumniDashboard';
 import NgoDashboard from './dashboards/NgoDashboard';
-import CommunityDashboard from './dashboards/CommunityDashboard';
+import VillagerDashboard from './dashboards/VillagerDashboard';
 
 export const DashboardShell = () => {
   const { user } = useAuth();
@@ -37,11 +37,12 @@ export const DashboardShell = () => {
     case 'ngo':
       return <NgoDashboard />;
 
+    case 'villager':
     case 'community_member':
     case 'community_volunteer':
     case 'welfare_officer':
     default:
-      return <CommunityDashboard />;
+      return <VillagerDashboard />;
   }
 };
 

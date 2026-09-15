@@ -76,7 +76,7 @@ export const CommunityDashboard = () => {
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Welcome, {user?.name || 'Community Friend'}
+              Welcome, {user?.name}
             </h1>
             <p className="text-sm text-slate-300 max-w-2xl">
               Support Govt Model Higher Secondary School. Donate learning equipment, sponsor digital tools, or volunteer your time to empower our village children.

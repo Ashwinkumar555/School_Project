@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import store from '../utils/dataStore.js';
 
@@ -19,7 +20,17 @@ export const protect = async (req, res, next) => {
       let user = null;
       try {
         if (User.db.readyState === 1) {
-          user = await User.findById(decoded.id).select('-password');
+          if (mongoose.Types.ObjectId.isValid(decoded.id)) {
+            user = await User.findById(decoded.id).select('-password');
+          }
+          if (!user && (decoded.phone || decoded.pNo)) {
+            user = await User.findOne({
+              $or: [
+                ...(decoded.phone ? [{ phone: decoded.phone }] : []),
+                ...(decoded.pNo ? [{ pNo: decoded.pNo }] : []),
+              ],
+            }).select('-password');
+          }
         }
       } catch (dbErr) {
         console.warn('DB lookup during auth protect:', dbErr.message);
@@ -39,8 +50,9 @@ export const protect = async (req, res, next) => {
         user = {
           _id: decoded.id,
           role: decoded.role,
-          name: decoded.name || 'EduConnect User',
+          name: decoded.name || '',
           phone: decoded.phone || '',
+          pNo: decoded.pNo || '',
           isPhoneVerified: true,
           isActive: true,
         };
@@ -55,10 +67,12 @@ export const protect = async (req, res, next) => {
 
       const safeUser = typeof user.toSafeObject === 'function' ? user.toSafeObject() : {
         _id: user._id,
-        name: user.name,
+        pNo: user.pNo || decoded.pNo || '',
+        name: user.name || decoded.name || '',
         email: user.email,
         role: user.role,
-        phone: user.phone,
+        phone: user.phone || decoded.phone || '',
+        children: user.children || [],
         isPhoneVerified: user.isPhoneVerified !== false,
         schoolName: user.schoolName,
         village: user.village,
@@ -66,6 +80,10 @@ export const protect = async (req, res, next) => {
         organizationName: user.organizationName,
         isActive: user.isActive !== false,
       };
+
+      if (!safeUser.children && user.children) {
+        safeUser.children = user.children;
+      }
 
       // Security: ensure Aadhaar number is never exposed in session retrieval
       delete safeUser.aadhaarNumber;

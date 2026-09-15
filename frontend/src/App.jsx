@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/layout/Layout';
 import LandingPage from './pages/LandingPage';
-import LoginPage from './pages/LoginPage';
+import LoginPage, { getDashboardRouteForRole } from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardShell from './pages/DashboardShell';
 import AdminDashboard from './pages/dashboards/AdminDashboard';
@@ -13,6 +13,7 @@ import ParentDashboard from './pages/dashboards/ParentDashboard';
 import LocalHeadDashboard from './pages/dashboards/LocalHeadDashboard';
 import AlumniDashboard from './pages/dashboards/AlumniDashboard';
 import NgoDashboard from './pages/dashboards/NgoDashboard';
+import VillagerDashboard from './pages/dashboards/VillagerDashboard';
 import CommunityDashboard from './pages/dashboards/CommunityDashboard';
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -38,7 +39,7 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Strict Role-Protected Route wrapper (denies access and redirects if role does not match)
+// Strict Role-Protected Route wrapper (denies access and redirects to user's registered role dashboard if role does not match)
 const RoleProtectedRoute = ({ allowedRoles, children }) => {
   const { user, isAuthenticated, loading } = useAuth();
 
@@ -58,12 +59,15 @@ const RoleProtectedRoute = ({ allowedRoles, children }) => {
   }
 
   const userRole = user?.role;
-  const isAllowed = Array.isArray(allowedRoles) && allowedRoles.includes(userRole);
+  const isAllowed =
+    Array.isArray(allowedRoles) &&
+    (allowedRoles.includes(userRole) ||
+      (userRole === 'villager' && allowedRoles.includes('community_member')));
 
   if (!isAllowed) {
     // If a user manually changes URL to another role's dashboard:
-    // Deny access, do not display protected dashboard, redirect to their own role's dashboard
-    return <Navigate to="/dashboard" replace />;
+    // Deny access, do not display protected dashboard, redirect to their own registered role's dashboard
+    return <Navigate to={getDashboardRouteForRole(userRole)} replace />;
   }
 
   return children;
@@ -71,7 +75,7 @@ const RoleProtectedRoute = ({ allowedRoles, children }) => {
 
 // Public Route wrapper (redirects authenticated users directly to dashboard)
 const PublicOnlyRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
 
   if (loading) {
     return (
@@ -84,8 +88,8 @@ const PublicOnlyRoute = ({ children }) => {
     );
   }
 
-  if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated && user?.role) {
+    return <Navigate to={getDashboardRouteForRole(user.role)} replace />;
   }
 
   return children;
@@ -97,7 +101,14 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout />}>
-            <Route index element={<LandingPage />} />
+            <Route
+              index
+              element={
+                <PublicOnlyRoute>
+                  <LoginPage />
+                </PublicOnlyRoute>
+              }
+            />
             <Route
               path="login"
               element={
@@ -106,6 +117,8 @@ function App() {
                 </PublicOnlyRoute>
               }
             />
+            <Route path="landing" element={<LandingPage />} />
+            <Route path="home" element={<LandingPage />} />
             <Route
               path="register"
               element={
@@ -125,7 +138,8 @@ function App() {
               }
             />
 
-            {/* Strict Role-Protected Dashboard Routes */}
+            {/* Strict Role-Protected Dashboard Routes for all 8 roles */}
+            {/* 1. Headmaster / Admin Dashboard */}
             <Route
               path="dashboard/admin"
               element={
@@ -142,6 +156,8 @@ function App() {
                 </RoleProtectedRoute>
               }
             />
+
+            {/* 2. Teacher Dashboard */}
             <Route
               path="dashboard/teacher"
               element={
@@ -150,6 +166,8 @@ function App() {
                 </RoleProtectedRoute>
               }
             />
+
+            {/* 3. Student Dashboard */}
             <Route
               path="dashboard/student"
               element={
@@ -158,6 +176,8 @@ function App() {
                 </RoleProtectedRoute>
               }
             />
+
+            {/* 4. Parent / Guardian Dashboard */}
             <Route
               path="dashboard/parent"
               element={
@@ -166,6 +186,8 @@ function App() {
                 </RoleProtectedRoute>
               }
             />
+
+            {/* 5. Village Local Head Dashboard */}
             <Route
               path="dashboard/local-head"
               element={
@@ -182,6 +204,8 @@ function App() {
                 </RoleProtectedRoute>
               }
             />
+
+            {/* 6. School Alumni Dashboard */}
             <Route
               path="dashboard/alumni"
               element={
@@ -190,6 +214,8 @@ function App() {
                 </RoleProtectedRoute>
               }
             />
+
+            {/* 7. NGO / Partner Dashboard */}
             <Route
               path="dashboard/ngo"
               element={
@@ -198,11 +224,21 @@ function App() {
                 </RoleProtectedRoute>
               }
             />
+
+            {/* 8. Villager Dashboard */}
+            <Route
+              path="dashboard/villager"
+              element={
+                <RoleProtectedRoute allowedRoles={['villager', 'community_member']}>
+                  <VillagerDashboard />
+                </RoleProtectedRoute>
+              }
+            />
             <Route
               path="dashboard/community"
               element={
-                <RoleProtectedRoute allowedRoles={['community_member', 'community_volunteer', 'welfare_officer']}>
-                  <CommunityDashboard />
+                <RoleProtectedRoute allowedRoles={['villager', 'community_member', 'community_volunteer', 'welfare_officer']}>
+                  <VillagerDashboard />
                 </RoleProtectedRoute>
               }
             />

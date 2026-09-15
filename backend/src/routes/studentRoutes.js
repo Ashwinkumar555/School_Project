@@ -2,8 +2,10 @@ import express from 'express';
 import {
   getStudents,
   getStudentById,
+  getLinkedStudents,
   createStudent,
   updateStudent,
+  deleteStudent,
   getWelfareSchemes,
 } from '../controllers/studentController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
@@ -12,6 +14,7 @@ const router = express.Router();
 
 router.use(protect);
 
+router.get('/linked', authorize('parent', 'student_parent', 'admin', 'headmaster_admin'), getLinkedStudents);
 router.get('/welfare/schemes', authorize('headmaster_admin', 'teacher', 'welfare_officer'), getWelfareSchemes);
 
 router.route('/')
@@ -20,6 +23,7 @@ router.route('/')
 
 router.route('/:id')
   .get(getStudentById)
-  .put(authorize('headmaster_admin', 'teacher'), updateStudent);
+  .put(authorize('headmaster_admin', 'teacher'), updateStudent)
+  .delete(authorize('headmaster_admin', 'teacher'), deleteStudent);
 
 export default router;

@@ -14,149 +14,28 @@ export const seedComprehensiveData = async () => {
   try {
     console.log('🌱 Checking and seeding comprehensive EduConnect data...');
 
-    // 1. Seed Users (All 8 Roles)
-    const demoPassword = 'Password123!';
-
-    const usersData = [
-      {
-        name: 'Dr. Ramesh Sharma (Headmaster)',
-        email: 'headmaster@school.gov.in',
-        password: demoPassword,
-        role: 'headmaster_admin',
-        phone: '+91 98765 00001',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 4',
-        district: 'Central District',
-        designation: 'Headmaster / School Administrator',
-      },
-      {
-        name: 'Priya Sundaram (Class 8 Teacher)',
-        email: 'teacher@school.gov.in',
-        password: demoPassword,
-        role: 'teacher',
-        phone: '+91 98765 00002',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 4',
-        district: 'Central District',
-        designation: 'Senior Mathematics & Science Educator',
-      },
-      {
-        name: 'Rajesh Nair (Science Teacher)',
-        email: 'science.teacher@school.gov.in',
-        password: demoPassword,
-        role: 'teacher',
-        phone: '+91 98765 00003',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 2',
-        district: 'Central District',
-        designation: 'Laboratory In-Charge',
-      },
-      {
-        name: 'Aarav Kumar (Student)',
-        email: 'student@school.gov.in',
-        password: demoPassword,
-        role: 'student',
-        phone: '+91 98765 00010',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur East',
-        district: 'Central District',
-      },
-      {
-        name: 'Rahul Verma (Student)',
-        email: 'rahul@school.gov.in',
-        password: demoPassword,
-        role: 'student',
-        phone: '+91 98765 00011',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 1',
-        district: 'Central District',
-      },
-      {
-        name: 'Meena Devi (Parent)',
-        email: 'parent@village.org',
-        password: demoPassword,
-        role: 'parent',
-        phone: '+91 98765 00005',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 2',
-        district: 'Central District',
-        designation: 'Parent Guardian (Aarav Kumar)',
-      },
-      {
-        name: 'Suresh Verma (Parent)',
-        email: 'suresh.parent@village.org',
-        password: demoPassword,
-        role: 'parent',
-        phone: '+91 98765 00012',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 1',
-        district: 'Central District',
-        designation: 'Parent Guardian (Rahul Verma)',
-      },
-      {
-        name: 'Sarpanch Baldev Singh',
-        email: 'localhead@village.gov.in',
-        password: demoPassword,
-        role: 'village_head',
-        phone: '+91 98765 00006',
-        aadhaarNumber: '123456789006',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Gram Panchayat',
-        district: 'Central District',
-        designation: 'Village Panchayat President / Local Head',
-      },
-      {
-        name: 'Kavitha Nathan (Villager / Donor)',
-        email: 'villager@village.org',
-        password: demoPassword,
-        role: 'community_member',
-        phone: '+91 98765 00004',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur East',
-        district: 'Central District',
-        designation: 'Community Volunteer & Resident',
-      },
-      {
-        name: 'Vikram Seth',
-        email: 'alumni@school.gov.in',
-        password: demoPassword,
-        role: 'alumni',
-        phone: '+91 98765 00007',
-        aadhaarNumber: '123456789007',
-        schoolName: 'Govt Model Higher Secondary School (Batch of 2012)',
-        village: 'Sundarpur / Bengaluru',
-        district: 'Central District',
-        designation: 'School Alumni & Contributing Patron',
-      },
-      {
-        name: 'Ananya Roy (Smile NGO)',
-        email: 'ngo@smilefoundation.org',
-        password: demoPassword,
-        role: 'ngo',
-        phone: '+91 98765 00008',
-        aadhaarNumber: '123456789008',
-        schoolName: 'Govt Model Higher Secondary School',
-        organizationName: 'Smile Rural Education Foundation',
-        village: 'District Center',
-        district: 'Central District',
-        designation: 'NGO Partner & Project Lead',
-      },
-    ];
+    // 1. Remove Any Demo Users completely
+    if (User.db?.readyState === 1) {
+      await User.deleteMany({
+        email: {
+          $in: [
+            'headmaster@school.gov.in',
+            'teacher@school.gov.in',
+            'science.teacher@school.gov.in',
+            'student@school.gov.in',
+            'rahul@school.gov.in',
+            'parent@village.org',
+            'suresh.parent@village.org',
+            'localhead@village.gov.in',
+            'villager@village.org',
+            'alumni@school.gov.in',
+            'ngo@smilefoundation.org',
+          ],
+        },
+      });
+    }
 
     const usersMap = {};
-    for (const u of usersData) {
-      let user = await User.findOne({ email: u.email });
-      if (!user) {
-        user = await User.create(u);
-      } else {
-        // update role if needed
-        user.role = u.role;
-        user.designation = u.designation || user.designation;
-        user.organizationName = u.organizationName || user.organizationName;
-        await user.save();
-      }
-      usersMap[u.email] = user;
-    }
 
     // 2. Seed Classes
     let class8A = await Class.findOne({ name: 'Class 8-A' });
@@ -308,6 +187,27 @@ export const seedComprehensiveData = async () => {
         attentionLevel: 'NORMAL',
         entitlements: [
           { schemeName: 'Free Uniform Set', status: 'Disbursed' },
+        ],
+      },
+      {
+        admissionNumber: 'SCH-2024-006',
+        rollNumber: '06',
+        name: 'Dinesh Kumar',
+        gender: 'Male',
+        dob: new Date('2012-04-10'),
+        class: class8A._id,
+        section: 'A',
+        parentName: 'Lakshmi Narayanan',
+        parentPhone: '984030216',
+        village: 'Sundarpur East',
+        bloodGroup: 'B+',
+        currentAttendanceRate: 91,
+        currentAcademicAverage: 82,
+        consecutiveAbsences: 0,
+        attentionLevel: 'NORMAL',
+        entitlements: [
+          { schemeName: 'Free Uniform Set', status: 'Disbursed' },
+          { schemeName: 'Textbook Grant', status: 'Disbursed' },
         ],
       },
     ];

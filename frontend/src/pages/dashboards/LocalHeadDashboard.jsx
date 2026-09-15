@@ -10,18 +10,22 @@ import {
   Sparkles,
   RefreshCw,
   TrendingUp,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import Card from '../../components/common/Card';
 import Badge from '../../components/common/Badge';
 import Button from '../../components/common/Button';
 import CreateDriveModal from '../../components/dashboard/CreateDriveModal';
+import CreateSupportRequestModal from '../../components/dashboard/CreateSupportRequestModal';
+import SupportRequestTimelineModal from '../../components/dashboard/SupportRequestTimelineModal';
 
 // Services
 import schoolNeedService from '../../services/schoolNeedService';
 import communityDriveService from '../../services/communityDriveService';
 import contributionService from '../../services/contributionService';
 import impactService from '../../services/impactService';
+import supportRequestService from '../../services/supportRequestService';
 
 export const LocalHeadDashboard = () => {
   const { user } = useAuth();
@@ -32,20 +36,28 @@ export const LocalHeadDashboard = () => {
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Support Requests State
+  const [supportRequests, setSupportRequests] = useState([]);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [selectedRequestForTimeline, setSelectedRequestForTimeline] = useState(null);
+  const [isTimelineModalOpen, setIsTimelineModalOpen] = useState(false);
+
   const fetchLocalHeadData = async () => {
     setLoading(true);
     try {
-      const [needsRes, drivesRes, contribRes, impactRes] = await Promise.allSettled([
+      const [needsRes, drivesRes, contribRes, impactRes, requestsRes] = await Promise.allSettled([
         schoolNeedService.getSchoolNeeds(),
         communityDriveService.getCommunityDrives(),
         contributionService.getContributions(),
         impactService.getImpactStats(),
+        supportRequestService.getSupportRequests(),
       ]);
 
       if (needsRes.status === 'fulfilled') setNeeds(needsRes.value.data || []);
       if (drivesRes.status === 'fulfilled') setDrives(drivesRes.value.data || []);
       if (contribRes.status === 'fulfilled') setContributions(contribRes.value.data || []);
       if (impactRes.status === 'fulfilled') setImpactStats(impactRes.value.data || null);
+      if (requestsRes.status === 'fulfilled') setSupportRequests(requestsRes.value.data || []);
     } catch (e) {
       console.error('Error fetching local head data:', e);
     } finally {
@@ -74,10 +86,10 @@ export const LocalHeadDashboard = () => {
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Sarpanch {user?.name || 'Baldev Singh'}
+              {user?.name}
             </h1>
             <p className="text-sm text-slate-300 max-w-2xl">
-              Village Education Committee Leadership. Coordinate community support campaigns, rally local residents, alumni, and NGOs to meet verified school resource needs.
+              Village Education Committee Leadership. Coordinate community support campaigns, rally local residents, alumni, and NGOs to meet verified school resource needs and support village students.
             </p>
           </div>
 
@@ -90,6 +102,15 @@ export const LocalHeadDashboard = () => {
               className="border-slate-700 bg-slate-800/80 text-slate-200 hover:bg-slate-700"
             >
               Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              icon={HeartHandshake}
+              onClick={() => setIsRequestModalOpen(true)}
+              className="border-indigo-400/50 bg-indigo-900/40 text-indigo-200 hover:bg-indigo-800"
+            >
+              + Student Support Request
             </Button>
             <Button
               variant="primary"
@@ -236,12 +257,122 @@ export const LocalHeadDashboard = () => {
         </div>
       </div>
 
+      {/* Village Student Support Requests Section */}
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <HeartHandshake className="w-5 h-5 text-indigo-600" />
+              Village Student Support Requests
+            </h2>
+            <p className="text-xs text-slate-500">
+              Sponsor educational materials and welfare assistance for students in {user?.village || 'Sundarpur Gram Panchayat'}. Requests are verified by the Head Master and routed to partner NGOs.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={PlusCircle}
+            onClick={() => setIsRequestModalOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white self-start sm:self-auto"
+          >
+            Create Support Request
+          </Button>
+        </div>
+
+        {supportRequests.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {supportRequests.map((req) => (
+              <Card key={req._id} className="border-slate-200 hover:border-indigo-300 transition-all p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                      {req.category}
+                    </span>
+                    <h4 className="font-bold text-slate-900 text-sm mt-1">{req.title}</h4>
+                    <p className="text-xs text-slate-500">
+                      Student: <strong className="text-slate-700">{req.studentName}</strong> • {req.studentClass} (Village: {req.village})
+                    </p>
+                  </div>
+                  <div>
+                    {req.status === 'Pending' && <Badge variant="amber" dot>Pending</Badge>}
+                    {req.status === 'Under Review' && <Badge variant="indigo" dot>Under Review</Badge>}
+                    {req.status === 'Approved' && <Badge variant="emerald" dot>Approved</Badge>}
+                    {req.status === 'Forwarded to NGO/Partner' && <Badge variant="purple" dot>Forwarded</Badge>}
+                    {req.status === 'Accepted' && <Badge variant="teal" dot>Accepted</Badge>}
+                    {req.status === 'Rejected' && <Badge variant="rose" dot>Declined</Badge>}
+                    {req.status === 'Completed' && <Badge variant="green" dot>Completed</Badge>}
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                  {req.description}
+                </p>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center gap-2">
+                    <span className={`font-semibold ${req.priority === 'Urgent' ? 'text-rose-600' : 'text-slate-600'}`}>
+                      {req.priority} Priority
+                    </span>
+                    {req.estimatedAmount > 0 && <span>• ₹{req.estimatedAmount}</span>}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedRequestForTimeline(req);
+                      setIsTimelineModalOpen(true);
+                    }}
+                    className="text-indigo-700 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    Track Status
+                  </button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card className="text-center py-8 border-dashed border-slate-300">
+            <HeartHandshake className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-slate-700">No village student requests active</p>
+            <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+              Know a child in your village needing uniforms, stationery, bag, or scholarship assistance? Rally support through our verified Head Master & NGO pipeline.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              icon={PlusCircle}
+              onClick={() => setIsRequestModalOpen(true)}
+              className="border-indigo-300 text-indigo-800 hover:bg-indigo-50"
+            >
+              Submit Student Request
+            </Button>
+          </Card>
+        )}
+      </div>
+
       {/* Drive Modal */}
       <CreateDriveModal
         isOpen={isDriveModalOpen}
         onClose={() => setIsDriveModalOpen(false)}
         needs={needs}
         onDriveCreated={fetchLocalHeadData}
+      />
+
+      {/* Support Request Modals */}
+      <CreateSupportRequestModal
+        isOpen={isRequestModalOpen}
+        onClose={() => setIsRequestModalOpen(false)}
+        onSuccess={fetchLocalHeadData}
+        role="village_head"
+      />
+
+      <SupportRequestTimelineModal
+        isOpen={isTimelineModalOpen}
+        onClose={() => {
+          setIsTimelineModalOpen(false);
+          setSelectedRequestForTimeline(null);
+        }}
+        request={selectedRequestForTimeline}
       />
     </div>
   );

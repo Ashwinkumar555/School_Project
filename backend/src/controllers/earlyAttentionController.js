@@ -12,7 +12,7 @@ export const getEarlyAttentionDashboard = async (req, res, next) => {
   try {
     const userRole = req.user.role;
 
-    if (['village_head', 'community_member', 'alumni', 'ngo'].includes(userRole)) {
+    if (['villager', 'village_head', 'community_member', 'alumni', 'ngo'].includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: 'Early attention records are confidential student academic metrics.',
@@ -96,7 +96,7 @@ export const getStudentAttentionProfile = async (req, res, next) => {
     const { studentId } = req.params;
     const userRole = req.user.role;
 
-    if (['village_head', 'community_member', 'alumni', 'ngo'].includes(userRole)) {
+    if (['villager', 'village_head', 'community_member', 'alumni', 'ngo'].includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: 'Access restricted by student privacy rules.',

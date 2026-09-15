@@ -2,22 +2,29 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export const USER_ROLES = [
-  'headmaster_admin',
-  'teacher',
-  'student',
-  'parent',
   'village_head',
-  'community_member',
   'alumni',
   'ngo',
+  'headmaster_admin',
+  'teacher',
+  'parent',
+  'student',
+  'villager',
   // Backward compatibility aliases
-  'welfare_officer',
+  'community_member',
+  'admin',
   'student_parent',
   'community_volunteer',
+  'welfare_officer',
 ];
 
 const userSchema = new mongoose.Schema(
   {
+    pNo: {
+      type: String,
+      trim: true,
+      sparse: true,
+    },
     name: {
       type: String,
       required: [true, 'Please provide full name'],
@@ -32,9 +39,7 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      minlength: [6, 'Password must be at least 6 characters'],
       select: false,
-      default: 'Password123!',
     },
     aadhaarNumber: {
       type: String,
@@ -44,16 +49,16 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
+      required: [true, 'Role is required'],
       enum: {
         values: USER_ROLES,
         message: '{VALUE} is not a valid EduConnect role',
       },
-      default: 'community_member',
     },
     phone: {
       type: String,
+      required: [true, 'Phone number is required'],
       trim: true,
-      default: '',
     },
     isPhoneVerified: {
       type: Boolean,
@@ -62,7 +67,7 @@ const userSchema = new mongoose.Schema(
     schoolName: {
       type: String,
       trim: true,
-      default: 'Govt Model Higher Secondary School',
+      default: '',
     },
     village: {
       type: String,

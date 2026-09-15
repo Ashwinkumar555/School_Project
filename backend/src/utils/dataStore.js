@@ -1,115 +1,65 @@
-/**
- * Resilient In-Memory State & Cache Layer for EduConnect
- * Keeps all 22 modules running at lightning speed with 100% data consistency
- * Seamlessly mirrors and falls back from MongoDB Atlas.
- */
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = path.resolve(__dirname, '../../data');
+const USERS_FILE = path.resolve(DATA_DIR, 'users.json');
 
 class EduConnectDataStore {
   constructor() {
     this.resetToDefaults();
   }
 
+  loadUsersFromFile() {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      if (fs.existsSync(USERS_FILE)) {
+        const raw = fs.readFileSync(USERS_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // Filter out any potential demo/test users from prior sessions
+          return parsed.filter(
+            (u) =>
+              u &&
+              u.email !== 'headmaster@school.gov.in' &&
+              u.email !== 'teacher@school.gov.in' &&
+              u.email !== 'student@school.gov.in' &&
+              u.email !== 'parent@village.org' &&
+              u.email !== 'localhead@village.gov.in' &&
+              u.email !== 'alumni@school.gov.in' &&
+              u.email !== 'ngo@smilefoundation.org' &&
+              u.email !== 'villager@village.org' &&
+              !u.name?.includes('Dr. Ramesh Sharma') &&
+              !u.name?.includes('Priya Sundaram') &&
+              !u.name?.includes('Sarpanch Baldev') &&
+              !u.name?.includes('John Doe')
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('Note reading users file:', e.message);
+    }
+    return [];
+  }
+
+  saveUsersToFile() {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(USERS_FILE, JSON.stringify(this.users, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('Note writing users file:', e.message);
+    }
+  }
+
   resetToDefaults() {
-    // 1. Users (Strictly the 7 platform roles)
-    this.users = [
-      {
-        _id: '65f000000000000000000001',
-        name: 'Dr. Ramesh Sharma',
-        email: 'headmaster@school.gov.in',
-        role: 'headmaster_admin',
-        phone: '+91 98765 00001',
-        aadhaarNumber: '123456789001',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 4',
-        district: 'Central District',
-        isActive: true,
-      },
-      {
-        _id: '65f000000000000000000002',
-        name: 'Priya Sundaram',
-        email: 'teacher@school.gov.in',
-        role: 'teacher',
-        phone: '+91 98765 00002',
-        aadhaarNumber: '123456789002',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 4',
-        district: 'Central District',
-        isActive: true,
-      },
-      {
-        _id: '65f000000000000000000003',
-        name: 'Aarav Kumar',
-        email: 'student@school.gov.in',
-        role: 'student',
-        phone: '+91 98765 00010',
-        aadhaarNumber: '123456789010',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur East',
-        district: 'Central District',
-        isActive: true,
-      },
-      {
-        _id: '65f000000000000000000004',
-        name: 'Rahul Verma',
-        email: 'rahul@school.gov.in',
-        role: 'student',
-        phone: '+91 98765 00011',
-        aadhaarNumber: '123456789011',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 1',
-        district: 'Central District',
-        isActive: true,
-      },
-      {
-        _id: '65f000000000000000000005',
-        name: 'Meena Devi',
-        email: 'parent@village.org',
-        role: 'parent',
-        phone: '+91 98765 00005',
-        aadhaarNumber: '123456789005',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Ward 2',
-        district: 'Central District',
-        isActive: true,
-      },
-      {
-        _id: '65f000000000000000000007',
-        name: 'Sarpanch Baldev Singh',
-        email: 'localhead@village.gov.in',
-        role: 'village_head',
-        phone: '+91 98765 00006',
-        aadhaarNumber: '123456789006',
-        schoolName: 'Govt Model Higher Secondary School',
-        village: 'Sundarpur Gram Panchayat',
-        district: 'Central District',
-        isActive: true,
-      },
-      {
-        _id: '65f000000000000000000009',
-        name: 'Vikram Seth',
-        email: 'alumni@school.gov.in',
-        role: 'alumni',
-        phone: '+91 98765 00007',
-        aadhaarNumber: '123456789007',
-        schoolName: 'Govt Model Higher Secondary School (Batch of 2012)',
-        village: 'Sundarpur / Bengaluru',
-        district: 'Central District',
-        isActive: true,
-      },
-      {
-        _id: '65f000000000000000000010',
-        name: 'Ananya Roy (Smile NGO)',
-        email: 'ngo@smilefoundation.org',
-        role: 'ngo',
-        phone: '+91 98765 00008',
-        aadhaarNumber: '123456789008',
-        schoolName: 'Govt Model Higher Secondary School',
-        organizationName: 'Smile Rural Education Foundation',
-        village: 'District Center',
-        district: 'Central District',
-        isActive: true,
-      },
-    ];
+    // 1. Users: Strictly REAL registered users only (NO demo accounts)
+    this.users = this.loadUsersFromFile();
 
     // 2. Classes
     this.classes = [
@@ -253,6 +203,35 @@ class EduConnectDataStore {
         welfareBeneficiary: true,
         entitlements: [{ schemeName: 'Free Uniform Set', status: 'Disbursed' }],
         isActive: true,
+      },
+      {
+        _id: '65f200000000000000000006',
+        admissionNumber: 'SCH-2024-006',
+        rollNumber: '06',
+        name: 'Dinesh Kumar',
+        gender: 'Male',
+        class: { _id: '65f100000000000000000001', name: 'Class 8-A', grade: '8', section: 'A' },
+        parentName: 'Lakshmi Narayanan',
+        parentPhone: '984030216',
+        village: 'Sundarpur East',
+        bloodGroup: 'A+',
+        currentAttendanceRate: 88,
+        currentAcademicAverage: 75,
+        consecutiveAbsences: 0,
+        attentionLevel: 'NORMAL',
+        welfareBeneficiary: true,
+        entitlements: [
+          { schemeName: 'Free Uniform Set (2 Pairs)', status: 'Disbursed' },
+          { schemeName: 'Textbook & Notebook Kit', status: 'Disbursed' },
+        ],
+        isActive: true,
+        subjectMarks: [
+          { subject: 'Mathematics', marksObtained: 80, maxMarks: 100, grade: 'A' },
+          { subject: 'Science', marksObtained: 75, maxMarks: 100, grade: 'A' },
+          { subject: 'English', marksObtained: 70, maxMarks: 100, grade: 'B' },
+          { subject: 'Social Science', marksObtained: 72, maxMarks: 100, grade: 'B' },
+          { subject: 'Regional Language', marksObtained: 78, maxMarks: 100, grade: 'A' },
+        ],
       },
     ];
 
@@ -695,7 +674,31 @@ class EduConnectDataStore {
         isPinned: true,
         createdAt: new Date(),
       },
+      {
+        _id: '65f900000000000000000004',
+        title: 'Quarterly Term Examination Timetable & Student Guidelines',
+        content: 'Quarterly examinations will commence from September 15. Students must carry their school ID card and arrive by 9:00 AM. Timetable sheets have been handed over to students.',
+        category: 'Academic',
+        targetAudience: 'Parents',
+        priority: 'High',
+        authorName: 'Dr. Meenakshi Sundaram (Head Master)',
+        isPinned: true,
+        createdAt: new Date(),
+      },
+      {
+        _id: '65f900000000000000000005',
+        title: 'State Educational Holiday & School Reopening Notice',
+        content: 'The school will remain closed on Friday for the state cultural festival. Classes will resume normally on Monday at 8:30 AM.',
+        category: 'Holiday',
+        targetAudience: 'All',
+        priority: 'Normal',
+        authorName: 'School Administration Office',
+        createdAt: new Date(),
+      },
     ];
+
+    // 11. Support Requests
+    this.supportRequests = [];
   }
 }
 

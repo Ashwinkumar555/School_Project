@@ -9,6 +9,8 @@ export const generateToken = (userId, role, extra = {}) => {
       id: userId,
       role,
       name: extra.name || '',
+      phone: extra.phone || '',
+      pNo: extra.pNo || '',
       email: extra.email || '',
     },
     secret,

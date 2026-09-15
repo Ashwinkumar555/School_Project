@@ -15,6 +15,7 @@ import {
   Building,
   Award,
   KeyRound,
+  HeartHandshake,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import authService from '../services/authService';
@@ -22,6 +23,7 @@ import Input from '../components/common/Input';
 import Button from '../components/common/Button';
 import Card from '../components/common/Card';
 import Badge from '../components/common/Badge';
+import { getDashboardRouteForRole } from './LoginPage';
 
 const RegisterPage = () => {
   const navigate = useNavigate();
@@ -32,8 +34,9 @@ const RegisterPage = () => {
     phone: '',
     aadhaarNumber: '',
     schoolName: '',
+    studentIdentifier: '',
     otp: '',
-    role: 'village_head',
+    role: 'villager',
   });
 
   const [error, setError] = useState('');
@@ -53,7 +56,7 @@ const RegisterPage = () => {
     return () => clearInterval(timer);
   }, [otpCountdown]);
 
-  // Strictly the 7 required platform roles in order
+  // All 8 official platform roles
   const roleOptions = [
     {
       id: 'village_head',
@@ -97,6 +100,12 @@ const RegisterPage = () => {
       desc: 'Track personal attendance, homework & term grades',
       icon: GraduationCap,
     },
+    {
+      id: 'villager',
+      title: 'Villager',
+      desc: 'Local village resident supporting school initiatives and welfare drives',
+      icon: HeartHandshake,
+    },
   ];
 
   const handleChange = (e) => {
@@ -118,8 +127,8 @@ const RegisterPage = () => {
       const res = await authService.sendOtp(formData.phone.trim());
       setOtpSent(true);
       setOtpCountdown(60);
-      const demoCode = res?.data?.otp ? ` (Verification Code: ${res.data.otp})` : '';
-      setOtpSuccessMessage(`OTP sent successfully to ${formData.phone.trim()}${demoCode}`);
+      const codeNote = res?.data?.otp ? ` (OTP: ${res.data.otp})` : '';
+      setOtpSuccessMessage(`${res.message || 'OTP sent successfully!'}${codeNote}`);
     } catch (err) {
       const msg = err?.response?.data?.message || err.message || 'Failed to send OTP. Please try again.';
       setError(msg);
@@ -130,6 +139,11 @@ const RegisterPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!formData.role) {
+      setError('Please select your platform role');
+      return;
+    }
 
     if (!formData.name.trim()) {
       setError('Please enter your full name');
@@ -160,18 +174,19 @@ const RegisterPage = () => {
     setError('');
 
     const res = await register({
+      role: formData.role,
       name: formData.name.trim(),
       phone: formData.phone.trim(),
       aadhaarNumber: formData.aadhaarNumber.trim(),
+      schoolName: formData.role === 'headmaster_admin' ? formData.schoolName.trim() : '',
       otp: formData.otp.trim(),
-      role: formData.role,
-      schoolName: formData.role === 'headmaster_admin' ? formData.schoolName.trim() : 'Govt Model Higher Secondary School',
     });
 
     setIsSubmitting(false);
 
-    if (res.success) {
-      navigate('/dashboard', { replace: true });
+    if (res.success && res.user) {
+      const targetDashboard = getDashboardRouteForRole(res.user.role);
+      navigate(targetDashboard, { replace: true });
     } else {
       setError(res.error || 'Registration failed. Please check your details.');
     }
@@ -179,7 +194,7 @@ const RegisterPage = () => {
 
   return (
     <div className="min-h-[calc(100vh-5rem)] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-slate-50 relative overflow-hidden">
-      <div className="max-w-3xl w-full relative z-10 space-y-6">
+      <div className="max-w-4xl w-full relative z-10 space-y-6">
         <div className="text-center space-y-2">
           <Badge variant="emerald" size="md">
             Citizen & Institutional Enrollment
@@ -188,12 +203,12 @@ const RegisterPage = () => {
             Join the EduConnect Platform
           </h1>
           <p className="text-sm text-slate-600 max-w-lg mx-auto">
-            Create your account to participate in government school governance, welfare tracking, or
+            Create your account to participate in government school governance, student welfare, or
             village community volunteer drives.
           </p>
         </div>
 
-        <Card className="shadow-lg border-slate-200 bg-white/95 backdrop-blur-md p-8 sm:p-10">
+        <Card className="shadow-lg border-slate-200 bg-white/95 backdrop-blur-md p-6 sm:p-10">
           {error && (
             <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-800 text-sm animate-fade-in">
               <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
@@ -206,7 +221,7 @@ const RegisterPage = () => {
 
           {otpSuccessMessage && (
             <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-3 text-emerald-800 text-sm animate-fade-in">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold">Phone Verification OTP</p>
                 <p className="text-xs text-emerald-700">{otpSuccessMessage}</p>
@@ -215,12 +230,12 @@ const RegisterPage = () => {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* 7-Role Selection Grid */}
+            {/* 8-Role Selection Grid */}
             <div className="space-y-2">
               <label className="block text-sm font-bold text-slate-800">
                 Select Your Platform Role <span className="text-rose-500">*</span>
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 {roleOptions.map((role) => {
                   const Icon = role.icon;
                   const isSelected = formData.role === role.id;
@@ -228,13 +243,13 @@ const RegisterPage = () => {
                     <div
                       key={role.id}
                       onClick={() => setFormData({ ...formData, role: role.id })}
-                      className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
                         isSelected
                           ? 'border-emerald-600 bg-emerald-50/70 ring-1 ring-emerald-600 text-slate-900 shadow-xs'
                           : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
                       }`}
                     >
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2">
                         <div
                           className={`p-1.5 rounded-lg ${
                             isSelected
@@ -244,7 +259,7 @@ const RegisterPage = () => {
                         >
                           <Icon className="w-4 h-4" />
                         </div>
-                        <p className="text-xs font-bold">{role.title}</p>
+                        <p className="text-xs font-bold leading-tight">{role.title}</p>
                       </div>
                       <p className="text-[11px] text-slate-500 mt-1.5 leading-snug">{role.desc}</p>
                     </div>
@@ -259,7 +274,7 @@ const RegisterPage = () => {
               <Input
                 label="Full Name"
                 name="name"
-                placeholder="e.g. Ramesh Kumar"
+                placeholder="e.g. Meenakshi"
                 value={formData.name}
                 onChange={handleChange}
                 icon={User}
@@ -309,7 +324,19 @@ const RegisterPage = () => {
                 required
               />
 
-              {/* 4. School Name (Headmaster / Admin ONLY) */}
+              {/* 4. OTP (All roles) */}
+              <Input
+                label="OTP"
+                name="otp"
+                placeholder="Enter 6-digit OTP"
+                value={formData.otp}
+                onChange={handleChange}
+                icon={KeyRound}
+                required
+                maxLength={6}
+              />
+
+              {/* 5. School Name (Headmaster / Admin ONLY) */}
               {formData.role === 'headmaster_admin' && (
                 <Input
                   label="School Name"
@@ -319,24 +346,25 @@ const RegisterPage = () => {
                   onChange={handleChange}
                   icon={School}
                   required
+                  className="sm:col-span-2"
                 />
               )}
 
-              {/* 5. OTP (All roles) */}
-              <Input
-                label="OTP (Phone Verification)"
-                name="otp"
-                placeholder="Enter 6-digit OTP"
-                value={formData.otp}
-                onChange={handleChange}
-                icon={KeyRound}
-                required
-                maxLength={6}
-                className={formData.role === 'headmaster_admin' ? 'sm:col-span-2' : ''}
-              />
+              {/* 6. Child Admission / Roll Number (Parent / Guardian) */}
+              {formData.role === 'parent' && (
+                <Input
+                  label="Linked Child Admission No. / Roll No. (Optional)"
+                  name="studentIdentifier"
+                  placeholder="e.g. SCH-2024-006 or 06"
+                  value={formData.studentIdentifier}
+                  onChange={handleChange}
+                  icon={GraduationCap}
+                  className="sm:col-span-2"
+                />
+              )}
             </div>
 
-            <div className="pt-4">
+            <div className="pt-2">
               <Button
                 type="submit"
                 variant="primary"
@@ -346,7 +374,7 @@ const RegisterPage = () => {
                 icon={ArrowRight}
                 iconPosition="right"
               >
-                Complete Registration
+                Complete Registration & Enter Dashboard
               </Button>
             </div>
           </form>

@@ -2,15 +2,13 @@ import api from './api';
 
 export const authService = {
   /**
-   * Login user with phone and OTP (or credentials)
+   * Login user with role, phone, and OTP
    */
-  async login(loginDataOrPhone, maybeOtp) {
+  async login(loginDataOrIdentifier, maybeOtp) {
     const payload =
-      typeof loginDataOrPhone === 'object'
-        ? loginDataOrPhone
-        : typeof loginDataOrPhone === 'string' && loginDataOrPhone.includes('@')
-        ? { email: loginDataOrPhone, password: maybeOtp }
-        : { phone: loginDataOrPhone, otp: maybeOtp };
+      typeof loginDataOrIdentifier === 'object'
+        ? loginDataOrIdentifier
+        : { identifier: loginDataOrIdentifier, otp: maybeOtp };
     const response = await api.post('/auth/login', payload);
     return response.data;
   },
@@ -24,10 +22,14 @@ export const authService = {
   },
 
   /**
-   * Send OTP to phone number for verification
+   * Send OTP to phone number
    */
-  async sendOtp(phone) {
-    const response = await api.post('/auth/send-otp', { phone });
+  async sendOtp(phoneOrIdentifier) {
+    const payload =
+      typeof phoneOrIdentifier === 'object'
+        ? phoneOrIdentifier
+        : { phone: phoneOrIdentifier, identifier: phoneOrIdentifier };
+    const response = await api.post('/auth/send-otp', payload);
     return response.data;
   },
 

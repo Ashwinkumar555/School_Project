@@ -15,6 +15,11 @@ import contributionRoutes from './routes/contributionRoutes.js';
 import announcementRoutes from './routes/announcementRoutes.js';
 import impactRoutes from './routes/impactRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
+import teacherRoutes from './routes/teacherRoutes.js';
+import supportRequestRoutes from './routes/supportRequestRoutes.js';
+import programRoutes from './routes/programRoutes.js';
+import supportRecordRoutes from './routes/supportRecordRoutes.js';
+import communicationRoutes from './routes/communicationRoutes.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
@@ -93,6 +98,11 @@ app.use('/api/contributions', contributionRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/impact', impactRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/teachers', teacherRoutes);
+app.use('/api/support-requests', supportRequestRoutes);
+app.use('/api/programs', programRoutes);
+app.use('/api/support-records', supportRecordRoutes);
+app.use('/api/communications', communicationRoutes);
 
 // Error Handling Middleware
 app.use(notFound);

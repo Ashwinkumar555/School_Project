@@ -1,6 +1,7 @@
 import store from '../utils/dataStore.js';
 import Attendance from '../models/Attendance.js';
 import mongoose from 'mongoose';
+import { normalizePhone } from './authController.js';
 
 /**
  * @desc    Record or update daily classroom attendance
@@ -263,7 +264,7 @@ export const updateStudentAttendanceRecord = async (req, res, next) => {
 export const getClassAttendance = async (req, res, next) => {
   try {
     const userRole = req.user.role;
-    if (['village_head', 'community_member', 'alumni', 'ngo', 'community_volunteer'].includes(userRole)) {
+    if (['villager', 'village_head', 'community_member', 'alumni', 'ngo', 'community_volunteer'].includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: 'Access Denied: Class attendance rosters are confidential to faculty.',
@@ -315,7 +316,7 @@ export const getClassAttendance = async (req, res, next) => {
 export const getStudentAttendance = async (req, res, next) => {
   try {
     const userRole = req.user.role;
-    if (['village_head', 'community_member', 'alumni', 'ngo', 'community_volunteer'].includes(userRole)) {
+    if (['villager', 'village_head', 'community_member', 'alumni', 'ngo', 'community_volunteer'].includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: 'Access Denied: Student daily attendance records are confidential.',
@@ -323,15 +324,50 @@ export const getStudentAttendance = async (req, res, next) => {
     }
 
     const { studentId } = req.params;
-    const student = store.students.find(
-      (s) => s._id?.toString() === studentId || s._id === studentId || s.id === studentId
-    );
+    let student = null;
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(studentId)) {
+      try {
+        student = await Student.findById(studentId).lean();
+      } catch (e) {
+        console.warn('MongoDB student attendance lookup:', e.message);
+      }
+    }
+    if (!student) {
+      student = store.students.find(
+        (s) => s._id?.toString() === studentId || s._id === studentId || s.id === studentId
+      );
+    }
 
     if (!student) {
       return res.status(404).json({
         success: false,
         message: 'Student not found',
       });
+    }
+
+    // Role-Based Isolation: Parent can ONLY view their linked child's attendance
+    if (userRole === 'parent' || userRole === 'student_parent') {
+      const userId = String(req.user._id || req.user.id);
+      const userPhone = req.user.phone || '';
+      const userNormPhone = normalizePhone(userPhone);
+      const sNormPhone = normalizePhone(student.parentPhone);
+      const userName = (req.user.name || '').toLowerCase().trim();
+      const sParentName = (student.parentName || '').toLowerCase().trim();
+      const userChildren = (req.user.children || []).map((c) => String(c?._id || c));
+      const sParentUser = String(student.parentUser?._id || student.parentUser || '');
+
+      const isLinked =
+        (sParentUser && sParentUser === userId) ||
+        (userNormPhone && sNormPhone && (userNormPhone === sNormPhone || student.parentPhone === userPhone)) ||
+        (userName && sParentName && (sParentName === userName || sParentName.includes(userName) || userName.includes(sParentName))) ||
+        userChildren.includes(String(student._id));
+
+      if (!isLinked) {
+        return res.status(403).json({
+          success: false,
+          message: "Access Denied: You are not authorized to view another student's attendance.",
+        });
+      }
     }
 
     // Collect individual attendance logs strictly for this student

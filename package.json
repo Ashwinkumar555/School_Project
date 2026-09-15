@@ -7,6 +7,7 @@
     "dev": "npm run dev --prefix frontend",
     "server": "npm run dev --prefix backend",
     "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "build": "npm run build --prefix frontend && node -e \"const fs=require('fs'); fs.cpSync('frontend/dist', 'dist', {recursive: true});\"",
     "build:frontend": "npm run build --prefix frontend",
     "lint": "npm run lint --prefix frontend"
   },

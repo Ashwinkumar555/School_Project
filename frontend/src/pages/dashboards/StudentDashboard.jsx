@@ -20,6 +20,7 @@ import studentService from '../../services/studentService';
 import academicService from '../../services/academicService';
 import attendanceService from '../../services/attendanceService';
 import announcementService from '../../services/announcementService';
+import programService from '../../services/programService';
 
 export const StudentDashboard = () => {
   const { user } = useAuth();
@@ -27,6 +28,7 @@ export const StudentDashboard = () => {
   const [reportCards, setReportCards] = useState([]);
   const [attendanceLogs, setAttendanceLogs] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -57,6 +59,13 @@ export const StudentDashboard = () => {
 
         const annRes = await announcementService.getAnnouncements();
         setAnnouncements(annRes.data || []);
+
+        try {
+          const progRes = await programService.getPrograms({ status: 'Active' });
+          setPrograms(progRes.data || []);
+        } catch (err) {
+          console.warn('Could not load programs:', err);
+        }
       } catch (e) {
         console.error('Error fetching student data:', e);
       } finally {
@@ -80,11 +89,11 @@ export const StudentDashboard = () => {
                 Student Academic Workspace
               </Badge>
               <span className="text-xs text-sky-300 font-semibold bg-sky-950/80 px-2.5 py-0.5 rounded-full border border-sky-800">
-                Class 8-A • Roll #{studentProfile?.rollNumber || '01'}
+                {studentProfile?.rollNumber ? `Class 8-A • Roll #${studentProfile.rollNumber}` : 'Enrolled Student'}
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Hello, {studentProfile?.name || user?.name || 'Aarav Kumar'}
+              Hello, {user?.name}
             </h1>
             <p className="text-sm text-slate-300 max-w-2xl">
               Govt Model Higher Secondary School. Track your daily attendance, term exam grades, homework, and government scheme entitlements.
@@ -217,6 +226,76 @@ export const StudentDashboard = () => {
             </Card>
           ))}
         </div>
+      </div>
+
+      {/* Partner Scholarships & Educational Programs */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <GraduationCap className="w-5 h-5 text-indigo-600" />
+            Partner Scholarships & Educational Programs
+          </h2>
+          <p className="text-xs text-slate-500">
+            Scholarship grants, free coaching workshops, and skill-development programs offered by verified NGO partners.
+          </p>
+        </div>
+
+        {programs.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {programs.map((prog) => (
+              <Card key={prog._id} className="border-slate-200 hover:border-indigo-300 transition-all p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <Badge
+                      variant={
+                        prog.type === 'Scholarship'
+                          ? 'emerald'
+                          : prog.type === 'Workshop'
+                          ? 'purple'
+                          : prog.type === 'Skill Training'
+                          ? 'blue'
+                          : 'amber'
+                      }
+                      size="xs"
+                    >
+                      {prog.type}
+                    </Badge>
+                    <span className="text-[10px] font-semibold text-slate-400">
+                      {prog.organizationName}
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-slate-900 text-sm leading-snug">{prog.title}</h3>
+                  <p className="text-xs text-slate-600 line-clamp-3">{prog.description}</p>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 space-y-1.5 text-xs text-slate-600">
+                  {prog.eligibility && (
+                    <div className="flex items-start gap-1 text-[11px]">
+                      <span className="font-semibold text-slate-700">Eligibility:</span>
+                      <span className="text-slate-600 line-clamp-1">{prog.eligibility}</span>
+                    </div>
+                  )}
+                  {prog.benefits && (
+                    <div className="flex items-start gap-1 text-[11px]">
+                      <span className="font-semibold text-slate-700">Benefit:</span>
+                      <span className="text-emerald-700 font-semibold line-clamp-1">{prog.benefits}</span>
+                    </div>
+                  )}
+                  {prog.deadline && (
+                    <div className="flex items-center justify-between text-[10px] pt-1 text-slate-400">
+                      <span>Apply by: {new Date(prog.deadline).toLocaleDateString()}</span>
+                      {prog.contactInfo && <span className="font-medium text-indigo-600 truncate max-w-[120px]">{prog.contactInfo}</span>}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card className="text-center py-6 text-slate-500 text-xs border-dashed border-slate-300">
+            No active partner scholarships or educational programs at this moment. Check back soon!
+          </Card>
+        )}
       </div>
     </div>
   );

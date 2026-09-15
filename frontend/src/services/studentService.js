@@ -6,6 +6,11 @@ export const studentService = {
     return res.data;
   },
 
+  async getLinkedStudents() {
+    const res = await api.get('/students/linked');
+    return res.data;
+  },
+
   async getStudentById(id) {
     const res = await api.get(`/students/${id}`);
     return res.data;
@@ -18,6 +23,11 @@ export const studentService = {
 
   async updateStudent(id, data) {
     const res = await api.put(`/students/${id}`, data);
+    return res.data;
+  },
+
+  async deleteStudent(id) {
+    const res = await api.delete(`/students/${id}`);
     return res.data;
   },
 

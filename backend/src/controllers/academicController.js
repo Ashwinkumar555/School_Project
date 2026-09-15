@@ -2,6 +2,7 @@ import store from '../utils/dataStore.js';
 import AcademicRecord from '../models/AcademicRecord.js';
 import Student from '../models/Student.js';
 import mongoose from 'mongoose';
+import { normalizePhone } from './authController.js';
 
 /**
  * @desc    Record or update student term examination marks
@@ -113,6 +114,21 @@ export const recordMarks = async (req, res, next) => {
             recordedBy: req.user?._id,
           };
           await AcademicRecord.findOneAndUpdate(filter, update, { upsert: true, new: true });
+
+          // Also synchronize subjectMarks and average onto the Student document in MongoDB
+          const stdDoc = await Student.findById(studentId);
+          if (stdDoc) {
+            stdDoc.subjectMarks = processedMarks;
+            stdDoc.currentAcademicAverage = percentage;
+            if (stdDoc.currentAttendanceRate < 60 || stdDoc.consecutiveAbsences >= 7 || stdDoc.currentAcademicAverage < 40) {
+              stdDoc.attentionLevel = 'HIGH_ATTENTION';
+            } else if (stdDoc.currentAttendanceRate < 75 || stdDoc.consecutiveAbsences >= 3 || stdDoc.currentAcademicAverage < 50) {
+              stdDoc.attentionLevel = 'MODERATE_ATTENTION';
+            } else {
+              stdDoc.attentionLevel = 'NORMAL';
+            }
+            await stdDoc.save();
+          }
         }
       } catch (dbErr) {
         console.warn('DB marks persist warning:', dbErr.message);
@@ -250,7 +266,7 @@ export const updateMarksRecord = async (req, res, next) => {
 export const getStudentMarks = async (req, res, next) => {
   try {
     const userRole = req.user.role;
-    if (['village_head', 'community_member', 'alumni', 'ngo', 'community_volunteer'].includes(userRole)) {
+    if (['villager', 'village_head', 'community_member', 'alumni', 'ngo', 'community_volunteer'].includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: 'Access Denied: Student academic scores and report cards are confidential.',
@@ -258,15 +274,50 @@ export const getStudentMarks = async (req, res, next) => {
     }
 
     const { studentId } = req.params;
-    const student = store.students.find(
-      (s) => s._id === studentId || s._id?.toString() === studentId.toString() || s.id === studentId
-    );
+    let student = null;
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(studentId)) {
+      try {
+        student = await Student.findById(studentId).lean();
+      } catch (e) {
+        console.warn('MongoDB student marks lookup:', e.message);
+      }
+    }
+    if (!student) {
+      student = store.students.find(
+        (s) => s._id === studentId || s._id?.toString() === studentId.toString() || s.id === studentId
+      );
+    }
 
     if (!student) {
       return res.status(404).json({
         success: false,
         message: 'Student not found',
       });
+    }
+
+    // Role-Based Isolation: Parent can ONLY view their linked child's marks
+    if (userRole === 'parent' || userRole === 'student_parent') {
+      const userId = String(req.user._id || req.user.id);
+      const userPhone = req.user.phone || '';
+      const userNormPhone = normalizePhone(userPhone);
+      const sNormPhone = normalizePhone(student.parentPhone);
+      const userName = (req.user.name || '').toLowerCase().trim();
+      const sParentName = (student.parentName || '').toLowerCase().trim();
+      const userChildren = (req.user.children || []).map((c) => String(c?._id || c));
+      const sParentUser = String(student.parentUser?._id || student.parentUser || '');
+
+      const isLinked =
+        (sParentUser && sParentUser === userId) ||
+        (userNormPhone && sNormPhone && (userNormPhone === sNormPhone || student.parentPhone === userPhone)) ||
+        (userName && sParentName && (sParentName === userName || sParentName.includes(userName) || userName.includes(sParentName))) ||
+        userChildren.includes(String(student._id));
+
+      if (!isLinked) {
+        return res.status(403).json({
+          success: false,
+          message: "Access Denied: You are not authorized to view another student's academic marks.",
+        });
+      }
     }
 
     // Retrieve only actual saved marks for this specific student
